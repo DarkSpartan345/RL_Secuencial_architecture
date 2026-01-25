@@ -1,0 +1,230 @@
+/**
+ * datapath.v - Datapath sintetizable para multiplicación
+ * 
+ * Componentes:
+ * - ALU (suma, resta, operaciones lógicas)
+ * - Registros (A, B, P, TEMP)
+ * - Shifter (shift/rotate)
+ * - Flags (Z, LSB, C)
+ */
+
+module datapath #(
+    parameter BIT_WIDTH = 8
+)(
+    input wire clk,
+    input wire rst_n,
+    
+    // Entradas de datos
+    input wire [BIT_WIDTH-1:0] data_a_in,
+    input wire [BIT_WIDTH-1:0] data_b_in,
+    input wire load_inputs,
+    
+    // Señales de control de la ALU
+    input wire [2:0] alu_op,        // Operación: ADD, SUB, AND, OR, XOR, PASS_A, PASS_B
+    input wire [1:0] alu_src_a,     // Fuente A: 0=A, 1=P, 2=TEMP
+    input wire [1:0] alu_src_b,     // Fuente B: 0=B, 1=P, 2=TEMP, 3=0
+    
+    // Señales de control del Shifter
+    input wire [2:0] shift_op,      // 0=NONE, 1=SHL, 2=SHR, 3=ROL, 4=ROR
+    input wire [1:0] shift_target,  // 0=NONE, 1=A, 2=B, 3=P
+    
+    // Señales de escritura
+    input wire write_p,
+    input wire write_temp,
+    input wire write_b,
+    
+    // Salidas
+    output wire [BIT_WIDTH-1:0] reg_a_out,
+    output wire [BIT_WIDTH-1:0] reg_b_out,
+    output wire [BIT_WIDTH-1:0] reg_p_out,
+    output wire [BIT_WIDTH-1:0] reg_temp_out,
+    
+    // Flags
+    output reg flag_z,
+    output reg flag_lsb,
+    output reg flag_c
+);
+
+    // Registros internos
+    reg [BIT_WIDTH-1:0] reg_a;
+    reg [BIT_WIDTH-1:0] reg_b;
+    reg [BIT_WIDTH-1:0] reg_p;
+    reg [BIT_WIDTH-1:0] reg_temp;
+    
+    // Señales internas de la ALU
+    wire [BIT_WIDTH-1:0] alu_a;
+    wire [BIT_WIDTH-1:0] alu_b;
+    wire [BIT_WIDTH-1:0] alu_result;
+    wire alu_carry;
+    
+    // Asignar salidas
+    assign reg_a_out = reg_a;
+    assign reg_b_out = reg_b;
+    assign reg_p_out = reg_p;
+    assign reg_temp_out = reg_temp;
+    
+    //===========================================
+    // Multiplexores de entrada a la ALU
+    //===========================================
+    
+    // Mux para fuente A
+    assign alu_a = (alu_src_a == 2'b00) ? reg_a :
+                   (alu_src_a == 2'b01) ? reg_p :
+                   (alu_src_a == 2'b10) ? reg_temp :
+                   {BIT_WIDTH{1'b0}};
+    
+    // Mux para fuente B
+    assign alu_b = (alu_src_b == 2'b00) ? reg_b :
+                   (alu_src_b == 2'b01) ? reg_p :
+                   (alu_src_b == 2'b10) ? reg_temp :
+                   {BIT_WIDTH{1'b0}};
+    
+    //===========================================
+    // ALU
+    //===========================================
+    
+    alu #(.BIT_WIDTH(BIT_WIDTH)) alu_inst (
+        .a(alu_a),
+        .b(alu_b),
+        .op(alu_op),
+        .result(alu_result),
+        .carry(alu_carry)
+    );
+    
+    //===========================================
+    // Lógica secuencial: Registros
+    //===========================================
+    
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            reg_a <= {BIT_WIDTH{1'b0}};
+            reg_b <= {BIT_WIDTH{1'b0}};
+            reg_p <= {BIT_WIDTH{1'b0}};
+            reg_temp <= {BIT_WIDTH{1'b0}};
+            flag_z <= 1'b0;
+            flag_lsb <= 1'b0;
+            flag_c <= 1'b0;
+        end else begin
+            // Cargar entradas
+            if (load_inputs) begin
+                reg_a <= data_a_in;
+                reg_b <= data_b_in;
+                reg_p <= {BIT_WIDTH{1'b0}};
+                reg_temp <= {BIT_WIDTH{1'b0}};
+                flag_lsb <= data_b_in[0];
+            end else begin
+                // Escribir resultados de la ALU
+                if (write_p) begin
+                    reg_p <= alu_result;
+                end
+                
+                if (write_temp) begin
+                    reg_temp <= alu_result;
+                end
+                
+                if (write_b) begin
+                    reg_b <= alu_result;
+                    flag_lsb <= alu_result[0];
+                end
+                
+                // Actualizar flags de la ALU
+                flag_z <= (alu_result == {BIT_WIDTH{1'b0}});
+                flag_c <= alu_carry;
+            end
+            
+            // Operaciones de shift (ejecutan después de la ALU)
+            if (!load_inputs && shift_op != 3'b000) begin
+                case (shift_target)
+                    2'b01: begin // Shift A
+                        {flag_c, reg_a} <= perform_shift(reg_a, shift_op);
+                    end
+                    2'b10: begin // Shift B
+                        {flag_c, reg_b} <= perform_shift(reg_b, shift_op);
+                        flag_lsb <= perform_shift(reg_b, shift_op)[0];
+                    end
+                    2'b11: begin // Shift P
+                        {flag_c, reg_p} <= perform_shift(reg_p, shift_op);
+                    end
+                endcase
+            end
+        end
+    end
+    
+    //===========================================
+    // Función para realizar shifts
+    //===========================================
+    
+    function [BIT_WIDTH:0] perform_shift;
+        input [BIT_WIDTH-1:0] value;
+        input [2:0] op;
+        begin
+            case (op)
+                3'b001: // SHL
+                    perform_shift = {value[BIT_WIDTH-1], value << 1};
+                3'b010: // SHR
+                    perform_shift = {value[0], value >> 1};
+                3'b011: // ROL
+                    perform_shift = {1'b0, {value[BIT_WIDTH-2:0], value[BIT_WIDTH-1]}};
+                3'b100: // ROR
+                    perform_shift = {1'b0, {value[0], value[BIT_WIDTH-1:1]}};
+                default:
+                    perform_shift = {1'b0, value};
+            endcase
+        end
+    endfunction
+
+endmodule
+
+
+/**
+ * alu.v - Unidad Aritmético-Lógica
+ */
+module alu #(
+    parameter BIT_WIDTH = 8
+)(
+    input wire [BIT_WIDTH-1:0] a,
+    input wire [BIT_WIDTH-1:0] b,
+    input wire [2:0] op,
+    output reg [BIT_WIDTH-1:0] result,
+    output reg carry
+);
+
+    wire [BIT_WIDTH:0] add_result;
+    wire [BIT_WIDTH:0] sub_result;
+    
+    assign add_result = {1'b0, a} + {1'b0, b};
+    assign sub_result = {1'b0, a} - {1'b0, b};
+    
+    always @(*) begin
+        carry = 1'b0;
+        case (op)
+            3'b000: begin // ADD
+                result = add_result[BIT_WIDTH-1:0];
+                carry = add_result[BIT_WIDTH];
+            end
+            3'b001: begin // SUB
+                result = sub_result[BIT_WIDTH-1:0];
+                carry = sub_result[BIT_WIDTH]; // Borrow
+            end
+            3'b010: begin // AND
+                result = a & b;
+            end
+            3'b011: begin // OR
+                result = a | b;
+            end
+            3'b100: begin // XOR
+                result = a ^ b;
+            end
+            3'b101: begin // PASS_A
+                result = a;
+            end
+            3'b110: begin // PASS_B
+                result = b;
+            end
+            default: begin
+                result = {BIT_WIDTH{1'b0}};
+            end
+        endcase
+    end
+
+endmodule

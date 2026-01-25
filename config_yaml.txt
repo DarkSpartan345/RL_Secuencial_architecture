@@ -1,0 +1,142 @@
+# config.yaml - Configuración del proyecto de multiplicación con RL
+
+# ============================================
+# PARÁMETROS DE HARDWARE
+# ============================================
+bit_width: 8              # Ancho de los operandos en bits (4, 8, 16, 32)
+max_cycles: 32            # Número máximo de ciclos antes de timeout
+num_states: 16            # Número de estados en la FSM (potencia de 2)
+
+# ============================================
+# PARÁMETROS DE ENTRENAMIENTO
+# ============================================
+algorithm: "PPO"          # Algoritmo de RL: "PPO" o "DQN"
+total_timesteps: 1000000  # Total de pasos de entrenamiento
+learning_rate: 0.0003     # Tasa de aprendizaje
+n_envs: 4                 # Número de entornos paralelos
+
+# ============================================
+# FUNCIÓN DE RECOMPENSA
+# ============================================
+reward_type: "standard"   # Tipo de recompensa: "standard", "sparse", "shaped"
+
+# Pesos de recompensa (solo para reward_type: "standard" o "shaped")
+reward_weights:
+  success_bonus: 100.0           # Bonus por multiplicación correcta
+  correctness_weight: 10.0       # Peso para proximidad al resultado
+  efficiency_weight: 1.0         # Peso para eficiencia (menos ciclos)
+  timeout_penalty: -50.0         # Penalización por timeout
+  invalid_op_penalty: -1.0       # Penalización por operaciones inválidas
+  progress_bonus: 0.5            # Bonus por acercarse al resultado
+
+# ============================================
+# ARQUITECTURA DE LA RED NEURONAL (PPO)
+# ============================================
+ppo_params:
+  n_steps: 2048          # Pasos antes de actualizar
+  batch_size: 64         # Tamaño de batch
+  n_epochs: 10           # Épocas de optimización por actualización
+  gamma: 0.99            # Factor de descuento
+  gae_lambda: 0.95       # Lambda para GAE
+  clip_range: 0.2        # Rango de clip para PPO
+  ent_coef: 0.01         # Coeficiente de entropía
+  vf_coef: 0.5           # Coeficiente de value function
+  max_grad_norm: 0.5     # Normalización de gradientes
+
+# ============================================
+# ARQUITECTURA DE LA RED NEURONAL (DQN)
+# ============================================
+dqn_params:
+  buffer_size: 50000           # Tamaño del replay buffer
+  learning_starts: 1000        # Pasos antes de empezar a aprender
+  batch_size: 32               # Tamaño de batch
+  tau: 1.0                     # Tasa de actualización de target network
+  gamma: 0.99                  # Factor de descuento
+  train_freq: 4                # Frecuencia de entrenamiento
+  gradient_steps: 1            # Pasos de gradiente por actualización
+  exploration_fraction: 0.3    # Fracción de tiempo explorando
+  exploration_initial_eps: 1.0 # Epsilon inicial
+  exploration_final_eps: 0.05  # Epsilon final
+
+# ============================================
+# RUTAS Y DIRECTORIOS
+# ============================================
+models_dir: "agents/models"    # Directorio para modelos guardados
+logs_dir: "logs"               # Directorio para logs de TensorBoard
+rom_output: "hdl/rom_data.mem" # Archivo de salida para ROM de Verilog
+fsm_report: "hdl/fsm_report.json" # Reporte de la FSM extraída
+
+# ============================================
+# CONFIGURACIÓN DE EVALUACIÓN
+# ============================================
+eval_episodes: 100       # Episodios para evaluación
+eval_freq: 5000          # Frecuencia de evaluación (en timesteps)
+save_freq: 10000         # Frecuencia de guardado de checkpoints
+
+# ============================================
+# CONFIGURACIÓN DE EXTRACCIÓN DE FSM
+# ============================================
+fsm_extraction:
+  num_samples: 1000      # Muestras para extraer la FSM
+  confidence_threshold: 0.7  # Umbral de confianza mínimo
+
+# ============================================
+# CONFIGURACIÓN DE VALIDACIÓN
+# ============================================
+validation:
+  num_test_cases: 100    # Número de casos de prueba
+  max_cycles_test: 64    # Ciclos máximos en validación
+  run_exhaustive: false  # Prueba exhaustiva (solo para bit_width <= 4)
+
+# ============================================
+# CONFIGURACIÓN DE VERILOG
+# ============================================
+verilog:
+  simulator: "iverilog"  # Simulador: "iverilog", "verilator", "modelsim"
+  waveform_format: "vcd" # Formato de forma de onda: "vcd", "fst"
+  synthesis_tool: null   # Herramienta de síntesis: "yosys", "vivado", etc.
+
+# ============================================
+# EXPERIMENTOS ESPECÍFICOS
+# ============================================
+experiments:
+  # Experimento 1: Multiplicación exacta 4 bits
+  exact_4bit:
+    bit_width: 4
+    max_cycles: 16
+    algorithm: "PPO"
+    reward_type: "standard"
+    total_timesteps: 500000
+  
+  # Experimento 2: Multiplicación aproximada 8 bits
+  approx_8bit:
+    bit_width: 8
+    max_cycles: 24
+    algorithm: "PPO"
+    reward_type: "shaped"
+    total_timesteps: 2000000
+  
+  # Experimento 3: Multiplicación con DQN
+  dqn_8bit:
+    bit_width: 8
+    max_cycles: 32
+    algorithm: "DQN"
+    reward_type: "sparse"
+    total_timesteps: 1500000
+
+# ============================================
+# CONFIGURACIÓN DE LOGGING
+# ============================================
+logging:
+  level: "INFO"          # Nivel de logging: "DEBUG", "INFO", "WARNING", "ERROR"
+  tensorboard: true      # Habilitar TensorBoard
+  wandb: false           # Habilitar Weights & Biases
+  save_video: false      # Guardar videos de episodios
+  
+# ============================================
+# SEMILLAS ALEATORIAS (para reproducibilidad)
+# ============================================
+random_seeds:
+  training: 42
+  evaluation: 100
+  validation: 200
