@@ -6,7 +6,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from typing import Tuple, Dict, Any
-from env.datapath import Datapath
+from env.datapath_sim import Datapath
 from env.reward_logic import RewardCalculator
 
 class MultiplicationEnv(gym.Env):
@@ -163,16 +163,18 @@ class MultiplicationEnv(gym.Env):
         """Construye el vector de observación normalizado"""
         state = self.datapath.get_state()
         
-        max_val = 2**self.bit_width - 1
+        # Valores máximos correctos
+        max_val_inputs = (2**self.bit_width) - 1      # 255 para 8 bits
+        max_val_product = (2**(self.bit_width * 2)) - 1  # 65535 para 16 bits
         
         obs = np.array([
-            state['reg_a'] / max_val,
-            state['reg_b'] / max_val,
-            state['reg_p'] / max_val,
-            state['reg_temp'] / max_val,
-            float(state['flag_z']),
-            float(state['flag_lsb']),
-            float(state['flag_c'])
+            state['reg_a'] / max_val_inputs,      # [0, 1]
+            state['reg_b'] / max_val_inputs,      # [0, 1]
+            state['reg_p'] / max_val_product,     # [0, 1] ✓ Correcto ahora
+            state['reg_temp'] / max_val_inputs,   # [0, 1]
+            state['flag_z'],                      # 0 o 1 (ya es float en get_state)
+            state['flag_lsb'],                    # 0 o 1
+            state['flag_c']                       # 0 o 1
         ], dtype=np.float32)
         
         return obs

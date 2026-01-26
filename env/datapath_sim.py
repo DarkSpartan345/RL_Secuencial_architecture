@@ -150,7 +150,25 @@ class Datapath:
             result = 0
             
         return result & self.mask, carry
-    
+    def shift_op(self,shift_op,reg_val,mask,bits):
+         # Ejecutar shift
+        if shift_op == 1:  # SHL (Shift Left)
+            new_val = (reg_val << 1) & mask
+            self.flag_c = (reg_val >> (bits - 1)) & 1
+            
+        elif shift_op == 2:  # SHR (Shift Right)
+            self.flag_c = reg_val & 1
+            new_val = reg_val >> 1
+            
+        elif shift_op == 3:  # ROL (Rotate Left)
+            new_val = ((reg_val << 1) | (reg_val >> (bits- 1))) & mask
+            
+        elif shift_op == 4:  # ROR (Rotate Right)
+            new_val = ((reg_val >> 1) | (reg_val << (bits - 1))) & mask
+            
+        else:
+            return
+        return new_val
     def _execute_shift(self, shift_op: int, target: int):
         """Ejecuta operaciones de shift/rotate"""
         if shift_op == 0 or target == 0:  # NONE
@@ -159,39 +177,16 @@ class Datapath:
         # Seleccionar registro objetivo
         if target == 1:
             reg_val = self.reg_a
+            self.reg_a = self.shift_op(shift_op,reg_val,self.mask,self.bit_width)
         elif target == 2:
             reg_val = self.reg_b
+            self.reg_b = self.shift_op(shift_op,reg_val,self.mask,self.bit_width)
+            self.flag_lsb = self.reg_b  & 1
         elif target == 3:
             reg_val = self.reg_p
+            self.reg_p = self.shift_op(shift_op,reg_val,self.mask,2*self.bit_width)
         else:
             return
-        
-        # Ejecutar shift
-        if shift_op == 1:  # SHL (Shift Left)
-            new_val = (reg_val << 1) & self.mask
-            self.flag_c = (reg_val >> (self.bit_width - 1)) & 1
-            
-        elif shift_op == 2:  # SHR (Shift Right)
-            self.flag_c = reg_val & 1
-            new_val = reg_val >> 1
-            
-        elif shift_op == 3:  # ROL (Rotate Left)
-            new_val = ((reg_val << 1) | (reg_val >> (self.bit_width - 1))) & self.mask
-            
-        elif shift_op == 4:  # ROR (Rotate Right)
-            new_val = ((reg_val >> 1) | (reg_val << (self.bit_width - 1))) & self.mask
-            
-        else:
-            return
-        
-        # Escribir resultado
-        if target == 1:
-            self.reg_a = new_val
-        elif target == 2:
-            self.reg_b = new_val
-            self.flag_lsb = new_val & 1
-        elif target == 3:
-            self.reg_p = new_val
     
     def get_state(self) -> Dict[str, int]:
         """Retorna el estado completo del datapath"""

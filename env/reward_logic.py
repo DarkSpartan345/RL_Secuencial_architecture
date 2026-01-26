@@ -3,7 +3,7 @@ reward_logic.py - Definición de la función de recompensa
 Incentiva eficiencia, corrección y descubrimiento de algoritmos válidos
 """
 from typing import Dict
-from env.datapath import Datapath
+from env.datapath_sim import Datapath
 
 class RewardCalculator:
     """Calcula recompensas para guiar el aprendizaje"""

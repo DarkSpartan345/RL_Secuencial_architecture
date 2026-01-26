@@ -18,7 +18,7 @@ from stable_baselines3.common.monitor import Monitor
 # Local imports
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from env.gym_env import MultiplicationEnv
+from env.gym_env_rl import MultiplicationEnv
 from env.reward_logic import RewardCalculator, SparseRewardCalculator, ShapedRewardCalculator
 
 
