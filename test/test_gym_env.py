@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from env.gym_env import MultiplicationEnv
+from env.gym_env_rl import MultiplicationEnv
 
 
 class TestEnvironmentBasics:
@@ -27,7 +27,7 @@ class TestEnvironmentBasics:
         """Verifica el espacio de observación"""
         env = MultiplicationEnv(bit_width=8)
         
-        assert env.observation_space.shape == (7,)
+        assert env.observation_space.shape == (9,)
         assert env.observation_space.dtype == np.float32
         assert np.all(env.observation_space.low == 0.0)
         assert np.all(env.observation_space.high == 1.0)
@@ -51,7 +51,7 @@ class TestResetFunctionality:
         obs, info = env.reset()
         
         assert isinstance(obs, np.ndarray)
-        assert obs.shape == (7,)
+        assert obs.shape == (9,)
         assert isinstance(info, dict)
     
     def test_reset_with_seed(self):
@@ -82,7 +82,10 @@ class TestResetFunctionality:
         
         # Hacer algunos pasos
         env.reset()
-        action = env.action_space.sample()
+        # Use a safe action that goes to state 1 (not HALT=15)
+        action = np.zeros(9, dtype=int)
+        action[8] = 1 # next_state = 1
+
         env.step(action)
         env.step(action)
         
@@ -262,7 +265,9 @@ class TestInfoDictionary:
         
         # Establecer resultado correcto manualmente
         env.datapath.reg_p = 42
-        _, _, _, _, info = env.step(env.action_space.sample())
+        # Ejecutar NOP (acción de ceros) para no modificar P
+        nop_action = np.zeros(9, dtype=int)
+        _, _, _, _, info = env.step(nop_action)
         
         # Ahora debería ser correcto
         assert info['correct'] == True
@@ -319,6 +324,89 @@ class TestIntegrationScenarios:
         assert r1 == r2
         assert t1 == t2
         assert tr1 == tr2
+
+
+class TestExpertPolicy:
+    """Pruebas de integración con una política experta"""
+    
+    def test_expert_policy_shift_and_add(self):
+        """
+        Simula un agente experto ejecutando shift-and-add.
+        Demuestra que el entorno permite resolver el problema.
+        """
+        env = MultiplicationEnv(bit_width=8, max_cycles=50) # Suficientes ciclos
+        # 12 * 10 = 120
+        obs, info = env.reset(options={'a': 12, 'b': 10})
+        
+        terminated = False
+        truncated = False
+        total_reward = 0
+        steps = 0
+        
+        # Simular bucle de agente
+        while not (terminated or truncated):
+            
+            # Leer estado actual directamente del datapath (trampa de experto)
+            # El agente real aprendería esto de 'obs'
+            current_b = env.datapath.reg_b
+            lsb = env.datapath.flag_lsb
+            pc = env.pc
+            
+            # Matriz de Acción por defecto (NOP)
+            # [alu_op, src_a, src_b, shift_op, target, wr_p, wr_temp, wr_b, next_state]
+            action = np.zeros(9, dtype=int)
+            
+            # Máquina de estados experta
+            if pc == 0: # Estado 0: Decisión y Operación A/P
+                if current_b == 0:
+                    # Terminado -> Ir a HALT
+                    action[8] = 15 # Next state = 15
+                else:
+                    if lsb == 1:
+                        # LSB=1: ADD (P=P+A) y SHIFT A (A<<1). Ir a Estado 1.
+                        
+                        # ALU ADD: P = A + P
+                        action[0] = 0 # ADD
+                        action[1] = 0 # src_a = reg_a
+                        action[2] = 1 # src_b = reg_p
+                        action[5] = 1 # write_p
+                        
+                        # SHIFT A: A << 1
+                        action[3] = 1 # SHL
+                        action[4] = 1 # target A                        
+                        action[8] = 1 # Next state = 1
+                    else:
+                        # LSB=0: Solo SHIFT A (A<<1). Ir a Estado 1.
+                        
+                        # No ALU operation (pero necesitamos pasar algo si shift target A usa ALU? No, shift es independiente)
+                        # Pero execute_operation ejecuta ALU primero. Si no escribimos P, no importa.
+                        
+                        # SHIFT A: A << 1
+                        action[3] = 1 # SHL
+                        action[4] = 1 # target A
+                        action[8] = 1 # Next state = 1
+                        
+            elif pc == 1: # Estado 1: Shift B
+                # SHIFT B: B >> 1. Ir a Estado 0.
+                action[3] = 2 # SHR
+                action[4] = 2 # target B               
+                action[8] = 0 # Next state = 0
+            else:
+                # Cualquier otro PC (no debería pasar en esta política) -> Ir a 0
+                action[8] = 0
+            print(f"Step {steps}: PC={pc} A={env.datapath.reg_a} B_curr={current_b} P={env.datapath.reg_p} LSB={lsb} Action=PC->{action[8]}")
+            # Ejecutar paso
+            obs, reward, terminated, truncated, info = env.step(action)
+            total_reward += reward
+            steps += 1
+            
+            
+        
+        # Verificaciones
+        assert terminated == True
+        assert truncated == False
+        assert info['correct'] == True
+        assert info['actual'] == 120
 
 
 if __name__ == '__main__':

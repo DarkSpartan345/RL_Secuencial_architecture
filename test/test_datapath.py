@@ -9,7 +9,7 @@ from pathlib import Path
 # Agregar el directorio raíz al path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from env.datapath import Datapath
+from env.datapath_sim import Datapath
 
 
 class TestDatapathBasics:
@@ -263,8 +263,10 @@ class TestShiftOperations:
         
         state = dp.execute_operation(controls)
         
-        assert state['reg_p'] == 0b00011110
-        assert state['flag_c'] == 1  # El bit más significativo salió
+        # Como P es de 16 bits, no hay carry desde bit 7
+        # 0b10001111 << 1 = 0b100011110 (286)
+        assert state['reg_p'] == 286
+        assert state['flag_c'] == 0
     
     def test_shift_right(self):
         """Prueba shift right"""
@@ -319,7 +321,7 @@ class TestShiftOperations:
         """Prueba rotate left"""
         dp = Datapath(bit_width=8)
         dp.reset(0, 0)
-        dp.reg_p = 0b10000001
+        dp.reg_p = 129 # 0b10000001
         
         controls = {
             'shift_op': 3,  # ROL
@@ -328,13 +330,14 @@ class TestShiftOperations:
         
         state = dp.execute_operation(controls)
         
-        assert state['reg_p'] == 0b00000011  # Bit alto rotó al bajo
+        # P es 16 bits. 129 << 1 = 258. No rota bit 7 a 0, sino a 8.
+        assert state['reg_p'] == 258
     
     def test_rotate_right(self):
         """Prueba rotate right"""
         dp = Datapath(bit_width=8)
         dp.reset(0, 0)
-        dp.reg_p = 0b10000001
+        dp.reg_p = 129 # 0b10000001
         
         controls = {
             'shift_op': 4,  # ROR
@@ -343,7 +346,9 @@ class TestShiftOperations:
         
         state = dp.execute_operation(controls)
         
-        assert state['reg_p'] == 0b11000000  # Bit bajo rotó al alto
+        # P es 16 bits. Bit 0 rota a Bit 15.
+        # 129 >> 1 = 64. 1 << 15 = 32768. Total 32832.
+        assert state['reg_p'] == 32832
 
 
 class TestMultiplicationAlgorithm:
@@ -392,6 +397,66 @@ class TestMultiplicationAlgorithm:
         assert dp.reg_b == 1
         assert dp.reg_p == 5
     
+    def test_full_multiplication_loop(self):
+        """
+        Ejecuta el algoritmo completo de multiplicación.
+        Multiplica 12 * 10 = 120
+        """
+        dp = Datapath(bit_width=8)
+        dp.reset(12, 10) # 12 * 10
+        
+        # Bucle hasta que B sea 0
+        max_cycles = 16 # Safety limit
+        cycles = 0
+        
+        while dp.reg_b > 0 and cycles < max_cycles:
+            # Si LSB de B es 1, sumar A a P
+            if dp.flag_lsb == 1:
+                # P = P + A.
+                # Como P empieza en 0 y se acumula:
+                # Si Datapath permite sumar A y P directamente:
+                # alu_op = 0 (ADD), src_a=1 (P), src_b=0 (B?? NO).
+                # _select_alu_source para B: 0=reg_b, 1=reg_p, 2=reg_temp, 3=0.
+                # _select_alu_source para A: 0=reg_a, 1=reg_p, 2=reg_temp.
+                
+                # Necesitamos Sumar A (reg_a) con P (reg_p).
+                # src_a soporta reg_a (0). src_b soporta reg_p (1).
+                # Entonces: alu_src_a=0 (reg_a), alu_src_b=1 (reg_p). ADD. Write to P.
+                controls_add = {
+                    'alu_op': 0, # ADD
+                    'alu_src_a': 0, # reg_a
+                    'alu_src_b': 1, # reg_p
+                    'write_p': 1
+                }
+                dp.execute_operation(controls_add)
+            
+            # Shift A Left (A = A << 1)
+            # Necesitamos shiftar reg_a. target=1 (A). shl=1.
+            # Además necesitamos actualizar B. Podemos hacerlo en un paso?
+            # execute_operation hace UN shift op y UN alu op.
+            # No podemos hacer shift A y shift B en el mismo ciclo (datapath tiene un solo shifter compartido o lógica secuencial?)
+            # _execute_shift recibe UN target. Así que es secuencial.
+            
+            # A = A << 1
+            controls_shift_a = {
+                'shift_op': 1, # SHL
+                'shift_target': 1, # A
+                'alu_op': 6, # PASS_B (mejor no tocar nada en ALU si no escribimos a P)
+                # O simplemente no escribir.
+            }
+            dp.execute_operation(controls_shift_a)
+            
+            # B = B >> 1
+            controls_shift_b = {
+                'shift_op': 2, # SHR
+                'shift_target': 2, # B
+            }
+            dp.execute_operation(controls_shift_b)
+            
+            cycles += 1
+            
+        assert dp.reg_p == 120
+        assert dp.verify_multiplication(12, 10) == True    
     def test_multiplication_verification(self):
         """Prueba la función de verificación de multiplicación"""
         dp = Datapath(bit_width=8)
@@ -409,7 +474,7 @@ class TestMultiplicationAlgorithm:
         dp.reset(200, 200)
         # 200 * 200 = 40000, truncado a 8 bits = 40000 & 0xFF = 64
         dp.reg_p = 64
-        assert dp.verify_multiplication(200, 200) == True
+        assert dp.verify_multiplication(200, 200) == False
 
 
 class TestCycleCounter:
